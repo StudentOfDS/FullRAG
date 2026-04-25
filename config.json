@@ -1,0 +1,74 @@
+{
+  "app": {
+    "name": "FullRAG",
+    "environment": "development",
+    "log_level": "INFO"
+  },
+  "embedding": {
+    "provider": "openai",
+    "model": "text-embedding-3-large",
+    "batch_size": 64,
+    "dimension": 3072
+  },
+  "indexing": {
+    "pinecone": {
+      "enabled": true,
+      "index_name": "fullrag-index",
+      "namespace": "default",
+      "metric": "cosine",
+      "timeout_seconds": 10,
+      "max_retries": 5,
+      "base_backoff_seconds": 0.5,
+      "max_backoff_seconds": 8
+    },
+    "faiss": {
+      "enabled": true,
+      "path": "./data/faiss.index",
+      "normalize_l2": true
+    },
+    "sparse": {
+      "bm25_k1": 1.5,
+      "bm25_b": 0.75,
+      "stage1_candidates": 200
+    },
+    "hybrid": {
+      "default_alpha": 0.5,
+      "short_query_alpha": 0.35,
+      "long_query_alpha": 0.75,
+      "long_query_token_threshold": 12
+    }
+  },
+  "llm": {
+    "providers": [
+      "openai",
+      "anthropic",
+      "gemini",
+      "deepseek",
+      "huggingface",
+      "ollama"
+    ],
+    "request_timeout_seconds": 30,
+    "max_retries": 3,
+    "max_concurrency": 8
+  },
+  "cache": {
+    "semantic_threshold": 0.95,
+    "ttl_seconds": 3600,
+    "max_items": 10000
+  },
+  "guardrails": {
+    "enabled": true,
+    "block_prompt_injection": true,
+    "block_irrelevant": true
+  },
+  "feature_flags": {
+    "enable_multimodal": true,
+    "enable_spark_ingestion": false,
+    "enable_cross_encoder": true,
+    "enable_airflow_tombstone_cleanup": true
+  },
+  "rate_limits": {
+    "ingestion_per_minute": 60,
+    "query_per_minute": 600
+  }
+}
