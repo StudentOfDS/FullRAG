@@ -14,6 +14,75 @@ except Exception:  # pragma: no cover
     faiss = None
 
 
+class PineconeClient:
+    """Minimal Pinecone REST client (serverless API) with retry + jitter."""
+
+    def __init__(
+        self,
+        api_key: str | None,
+        host: str | None,
+        namespace: str,
+        enabled: bool,
+        timeout_seconds: float = 10.0,
+        max_retries: int = 4,
+        base_backoff_seconds: float = 0.25,
+        max_backoff_seconds: float = 4.0,
+    ) -> None:
+        self.enabled = bool(enabled and api_key and host)
+        self.api_key = api_key
+        self.host = host.rstrip("/") if host else ""
+        self.namespace = namespace
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
+        self.base_backoff_seconds = base_backoff_seconds
+        self.max_backoff_seconds = max_backoff_seconds
+
+    def upsert(self, vectors: list[dict]) -> None:
+        if not self.enabled or not vectors:
+            return
+        payload = {"vectors": vectors, "namespace": self.namespace}
+        self._request("/vectors/upsert", payload)
+
+    def query(self, vector: list[float], top_k: int, candidate_ids: list[str] | None = None) -> list[tuple[str, float]]:
+        if not self.enabled:
+            return []
+        payload: dict[str, object] = {
+            "vector": vector,
+            "topK": top_k,
+            "namespace": self.namespace,
+            "includeValues": False,
+            "includeMetadata": False,
+        }
+        if candidate_ids:
+            payload["id"] = None
+            payload["filter"] = {"chunk_id": {"$in": candidate_ids[:1000]}}
+        data = self._request("/query", payload)
+        matches = data.get("matches", [])
+        return [(m.get("id", ""), float(m.get("score", 0.0))) for m in matches if m.get("id")]
+
+    def _request(self, path: str, payload: dict) -> dict:
+        headers = {"Api-Key": self.api_key or "", "Content-Type": "application/json"}
+        url = f"{self.host}{path}"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        backoff = self.base_backoff_seconds
+        for attempt in range(self.max_retries + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout_seconds) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                if attempt == self.max_retries:
+                    raise RuntimeError(f"Pinecone request failed: {path}") from exc
+                sleep = min(backoff + random.uniform(0, backoff), self.max_backoff_seconds)
+                time.sleep(sleep)
+                backoff = min(backoff * 2, self.max_backoff_seconds)
+        return {}
+
+
 class DenseIndex:
     """Dense retrieval with embedding client and optional FAISS persistence."""
 

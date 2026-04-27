@@ -6,7 +6,7 @@ import logging
 
 from fullrag.caching.semantic_cache import SemanticCache
 from fullrag.chunking.service import AdaptiveChunker
-from fullrag.generation.service import MultiProviderGenerator
+from fullrag.generation.service import GeneratorPolicy, MultiProviderGenerator
 from fullrag.guardrails.service import QueryGuardrails
 from fullrag.indexing.dense import DenseIndex
 from fullrag.indexing.embeddings import EmbeddingClient, EmbeddingConfig

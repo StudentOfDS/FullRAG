@@ -23,7 +23,8 @@
       "timeout_seconds": 10,
       "max_retries": 5,
       "base_backoff_seconds": 0.5,
-      "max_backoff_seconds": 8
+      "max_backoff_seconds": 8,
+      "host": ""
     },
     "faiss": {
       "enabled": true,
@@ -61,7 +62,10 @@
     },
     "request_timeout_seconds": 30,
     "max_retries": 3,
-    "max_concurrency": 8
+    "max_concurrency": 8,
+    "circuit_breaker_seconds": 20,
+    "retry_base_backoff_seconds": 0.2,
+    "max_prompt_chars": 14000
   },
   "cache": {
     "semantic_threshold": 0.95,

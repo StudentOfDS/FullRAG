@@ -114,7 +114,7 @@ class MultiProviderGenerator:
         ]
 
     async def answer(self, query: str, context: list[Chunk]) -> QueryResult:
-        prompt = self._build_prompt(query, context)
+        prompt = self._enforce_budget(self._build_prompt(query, context))
         start = time.perf_counter()
 
         async with self._semaphore:
@@ -141,6 +141,27 @@ class MultiProviderGenerator:
             provider="local_fallback",
             cached=False,
         )
+
+    def _enforce_budget(self, prompt: str) -> str:
+        if len(prompt) <= self._policy.max_prompt_chars:
+            return prompt
+        return prompt[: self._policy.max_prompt_chars]
+
+    @staticmethod
+    def _enforce_citation_policy(text: str, chunks: list[Chunk]) -> str:
+        if not chunks:
+            return text
+        if "SOURCE:" in text or "[" in text:
+            return text
+        first = chunks[0]
+        return f"{text}\n\nSource: {first.source_file}:{first.page}"
+
+    @staticmethod
+    def _local_fallback(query: str, chunks: list[Chunk]) -> str:
+        if not chunks:
+            return "I do not have enough grounded context to answer this query."
+        joined = " ".join(chunk.abstract or chunk.text[:140] for chunk in chunks[:4])
+        return f"Grounded fallback answer for: {query}. Context summary: {joined}"
 
     @staticmethod
     def _local_fallback(query: str, chunks: list[Chunk]) -> str:
