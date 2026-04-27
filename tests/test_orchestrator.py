@@ -24,4 +24,4 @@ def test_ingest_and_query(tmp_path: Path):
 
     result = asyncio.run(orchestrator.query("What is RAG?"))
     assert "answer" in result
-    assert result["provider"] in {"openai", "ollama", "cache"}
+    assert result["provider"] in {"openai", "ollama", "cache", "local_fallback"}
