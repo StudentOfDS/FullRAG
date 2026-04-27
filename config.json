@@ -8,9 +8,7 @@
     "provider": "openai",
     "model": "text-embedding-3-large",
     "batch_size": 64,
-    "dimension": 1536,
-    "max_retries": 3,
-    "retry_base_backoff_seconds": 0.2
+    "dimension": 1536
   },
   "storage": {
     "docstore_path": "./data/docstore.db",

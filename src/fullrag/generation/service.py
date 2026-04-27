@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from fullrag.models.entities import Chunk, QueryResult
 
@@ -18,23 +17,9 @@ class ProviderClient:
     model: str
     api_key: str | None = None
     base_url: str | None = None
-    failure_count: int = 0
-    open_until: float = 0.0
 
     async def complete(self, prompt: str) -> str:
         return await asyncio.to_thread(self._complete_sync, prompt)
-
-    def is_available(self) -> bool:
-        return time.time() >= self.open_until
-
-    def record_failure(self, cooldown_seconds: float) -> None:
-        self.failure_count += 1
-        if self.failure_count >= 3:
-            self.open_until = time.time() + cooldown_seconds
-
-    def record_success(self) -> None:
-        self.failure_count = 0
-        self.open_until = 0.0
 
     def _complete_sync(self, prompt: str) -> str:
         provider = self.name.lower()
@@ -103,13 +88,6 @@ class ProviderClient:
         return data.get("response", "")
 
 
-@dataclass(slots=True)
-class GeneratorPolicy:
-    max_prompt_chars: int = 14000
-    circuit_breaker_seconds: float = 20.0
-    retry_base_backoff_seconds: float = 0.2
-
-
 class MultiProviderGenerator:
     def __init__(
         self,
@@ -119,11 +97,9 @@ class MultiProviderGenerator:
         max_retries: int = 2,
         provider_models: dict[str, str] | None = None,
         secrets: dict[str, str | None] | None = None,
-        policy: GeneratorPolicy | None = None,
     ) -> None:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._max_retries = max_retries
-        self._policy = policy or GeneratorPolicy()
         secrets = secrets or {}
         model_defaults = provider_models or {}
         self._clients = [
@@ -143,13 +119,9 @@ class MultiProviderGenerator:
 
         async with self._semaphore:
             for client in self._clients:
-                if not client.is_available():
-                    continue
-                for attempt in range(self._max_retries + 1):
+                for _ in range(self._max_retries + 1):
                     try:
                         text = await asyncio.wait_for(client.complete(prompt), timeout=client.timeout_seconds)
-                        client.record_success()
-                        text = self._enforce_citation_policy(text, context)
                         return QueryResult(
                             answer=text,
                             sources=[f"{c.source_file}:{c.page}" for c in context],
@@ -158,10 +130,7 @@ class MultiProviderGenerator:
                             cached=False,
                         )
                     except Exception:
-                        client.record_failure(self._policy.circuit_breaker_seconds)
-                        if attempt < self._max_retries:
-                            backoff = self._policy.retry_base_backoff_seconds * (2**attempt)
-                            await asyncio.sleep(backoff + random.uniform(0, backoff))
+                        await asyncio.sleep(0.15)
                         continue
 
         fallback_text = self._local_fallback(query, context)
@@ -186,6 +155,13 @@ class MultiProviderGenerator:
             return text
         first = chunks[0]
         return f"{text}\n\nSource: {first.source_file}:{first.page}"
+
+    @staticmethod
+    def _local_fallback(query: str, chunks: list[Chunk]) -> str:
+        if not chunks:
+            return "I do not have enough grounded context to answer this query."
+        joined = " ".join(chunk.abstract or chunk.text[:140] for chunk in chunks[:4])
+        return f"Grounded fallback answer for: {query}. Context summary: {joined}"
 
     @staticmethod
     def _local_fallback(query: str, chunks: list[Chunk]) -> str:

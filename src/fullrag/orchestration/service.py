@@ -8,7 +8,7 @@ from fullrag.caching.semantic_cache import SemanticCache
 from fullrag.chunking.service import AdaptiveChunker
 from fullrag.generation.service import GeneratorPolicy, MultiProviderGenerator
 from fullrag.guardrails.service import QueryGuardrails
-from fullrag.indexing.dense import DenseIndex, PineconeClient
+from fullrag.indexing.dense import DenseIndex
 from fullrag.indexing.embeddings import EmbeddingClient, EmbeddingConfig
 from fullrag.indexing.service import HybridIndexer
 from fullrag.indexing.sparse import BM25Index
@@ -37,26 +37,11 @@ class FullRAGOrchestrator:
                 dimension=min(3072, config["embedding"]["dimension"]),
                 openai_api_key=secrets.get("openai_api_key"),
                 huggingface_api_key=secrets.get("huggingface_api_key"),
-                max_retries=config["embedding"].get("max_retries", 3),
-                retry_base_backoff_seconds=config["embedding"].get("retry_base_backoff_seconds", 0.2),
             )
         )
-        pinecone_cfg = config["indexing"].get("pinecone", {})
-        pinecone_client = PineconeClient(
-            api_key=secrets.get("pinecone_api_key"),
-            host=pinecone_cfg.get("host"),
-            namespace=pinecone_cfg.get("namespace", "default"),
-            enabled=pinecone_cfg.get("enabled", False),
-            timeout_seconds=float(pinecone_cfg.get("timeout_seconds", 10)),
-            max_retries=int(pinecone_cfg.get("max_retries", 4)),
-            base_backoff_seconds=float(pinecone_cfg.get("base_backoff_seconds", 0.25)),
-            max_backoff_seconds=float(pinecone_cfg.get("max_backoff_seconds", 4.0)),
-        )
-
         dense = DenseIndex(
             embedder=embedder,
             dimension=min(3072, config["embedding"]["dimension"]),
-            pinecone_client=pinecone_client,
             faiss_enabled=config["indexing"].get("faiss", {}).get("enabled", True),
             faiss_path=config["indexing"].get("faiss", {}).get("path", "./data/faiss.index"),
             normalize_l2=config["indexing"].get("faiss", {}).get("normalize_l2", True),
@@ -84,11 +69,6 @@ class FullRAGOrchestrator:
             max_retries=config["llm"].get("max_retries", 2),
             provider_models=config["llm"].get("models", {}),
             secrets=secrets,
-            policy=GeneratorPolicy(
-                max_prompt_chars=config["llm"].get("max_prompt_chars", 14000),
-                circuit_breaker_seconds=float(config["llm"].get("circuit_breaker_seconds", 20)),
-                retry_base_backoff_seconds=float(config["llm"].get("retry_base_backoff_seconds", 0.2)),
-            ),
         )
         self.guardrails = QueryGuardrails()
         self.cache = SemanticCache(

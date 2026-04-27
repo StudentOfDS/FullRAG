@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import random
-import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -17,8 +16,6 @@ class EmbeddingConfig:
     dimension: int
     openai_api_key: str | None = None
     huggingface_api_key: str | None = None
-    max_retries: int = 3
-    retry_base_backoff_seconds: float = 0.2
 
 
 class EmbeddingClient:
@@ -30,29 +27,18 @@ class EmbeddingClient:
         provider = self.config.provider.lower()
         if provider == "openai" and self.config.openai_api_key:
             try:
-                return self._retry_embed(self._embed_openai, texts)
+                return self._embed_openai(texts)
             except Exception:
                 return [self._stable_hash_embedding(text) for text in texts]
         if provider in {"huggingface", "hf"} and self.config.huggingface_api_key:
             try:
-                return self._retry_embed(self._embed_huggingface, texts)
+                return self._embed_huggingface(texts)
             except Exception:
                 return [self._stable_hash_embedding(text) for text in texts]
         return [self._stable_hash_embedding(text) for text in texts]
 
     def embed_query(self, text: str) -> list[float]:
         return self.embed_texts([text])[0]
-
-    def _retry_embed(self, fn, texts: list[str]) -> list[list[float]]:
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                return fn(texts)
-            except Exception:
-                if attempt >= self.config.max_retries:
-                    raise
-                backoff = self.config.retry_base_backoff_seconds * (2**attempt)
-                time.sleep(backoff + random.uniform(0, backoff))
-        return [self._stable_hash_embedding(text) for text in texts]
 
     def _post_json(self, url: str, payload: dict, headers: dict[str, str] | None = None):
         req_headers = {"Content-Type": "application/json", **(headers or {})}

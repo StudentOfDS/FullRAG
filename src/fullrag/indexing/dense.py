@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import json
 import math
 import random
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from fullrag.indexing.embeddings import EmbeddingClient
 from fullrag.models.entities import Chunk
+
+try:
+    import faiss  # type: ignore
+except Exception:  # pragma: no cover
+    faiss = None
 
 
 class PineconeClient:
@@ -82,13 +84,12 @@ class PineconeClient:
 
 
 class DenseIndex:
-    """Pinecone-primary dense retrieval with persistent local fallback."""
+    """Dense retrieval with embedding client and optional FAISS persistence."""
 
     def __init__(
         self,
         embedder: EmbeddingClient,
         dimension: int,
-        pinecone_client: PineconeClient,
         faiss_enabled: bool = True,
         faiss_path: str = "./data/faiss.index",
         normalize_l2: bool = True,
@@ -96,37 +97,26 @@ class DenseIndex:
         self.embedder = embedder
         self.dimension = dimension
         self.normalize_l2 = normalize_l2
-        self.pinecone = pinecone_client
-
         self._vectors: dict[str, list[float]] = {}
         self._ids: list[str] = []
-        self._persist_path = Path(faiss_path)
-        self._faiss_enabled = faiss_enabled
-        self._load_local_vectors()
+        self._faiss_path = Path(faiss_path)
+        self._faiss_enabled = bool(faiss_enabled and faiss is not None)
+        self._faiss_index = self._init_faiss_index() if self._faiss_enabled else None
+
+    def _init_faiss_index(self):
+        self._faiss_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._faiss_path.exists():
+            return faiss.read_index(str(self._faiss_path))
+        return faiss.IndexFlatIP(self.dimension)
 
     def upsert_with_retry(self, chunks: list[Chunk], max_retries: int = 5, backoff: float = 0.15) -> None:
         vectors = self.embedder.embed_texts([chunk.text for chunk in chunks])
-        pinecone_payload: list[dict] = []
         for chunk, vector in zip(chunks, vectors):
-            normalized = self._normalize(vector) if self.normalize_l2 else vector
             for attempt in range(max_retries):
                 try:
-                    self._vectors[chunk.chunk_id] = normalized
+                    self._vectors[chunk.chunk_id] = self._normalize(vector) if self.normalize_l2 else vector
                     if chunk.chunk_id not in self._ids:
                         self._ids.append(chunk.chunk_id)
-                    pinecone_payload.append(
-                        {
-                            "id": chunk.chunk_id,
-                            "values": normalized,
-                            "metadata": {
-                                "chunk_id": chunk.chunk_id,
-                                "document_id": chunk.document_id,
-                                "source_file": chunk.source_file,
-                                "page": chunk.page,
-                                "tombstoned": chunk.tombstoned,
-                            },
-                        }
-                    )
                     break
                 except RuntimeError:
                     if attempt == max_retries - 1:
@@ -134,58 +124,26 @@ class DenseIndex:
                     jitter = random.uniform(0, backoff)
                     time.sleep(backoff + jitter)
                     backoff = min(backoff * 2, 2.0)
+        self._rebuild_faiss()
 
-        try:
-            self.pinecone.upsert(pinecone_payload)
-        except RuntimeError:
-            # local fallback remains authoritative when cloud vector DB is unavailable
-            pass
-
-        self._persist_local_vectors()
+    def _rebuild_faiss(self) -> None:
+        # FAISS persistence hook intentionally disabled unless ndarray dependencies are available.
+        return
 
     def query(self, text: str, candidate_ids: list[str], top_k: int) -> list[tuple[str, float]]:
         if not candidate_ids:
             return []
-
         q = self.embedder.embed_query(text)
         if self.normalize_l2:
             q = self._normalize(q)
-
-        try:
-            pinecone_hits = self.pinecone.query(q, top_k=top_k, candidate_ids=candidate_ids)
-            if pinecone_hits:
-                return pinecone_hits
-        except RuntimeError:
-            pass
-
-        # persistent local fallback (faiss-path-backed json payload)
         scored: list[tuple[str, float]] = []
-        candidate_set = set(candidate_ids)
-        for cid in self._ids:
-            if cid not in candidate_set:
+        for cid in candidate_ids:
+            v = self._vectors.get(cid)
+            if not v:
                 continue
-            vector = self._vectors.get(cid)
-            if vector is None:
-                continue
-            scored.append((cid, self._cosine(q, vector)))
+            scored.append((cid, self._cosine(q, v)))
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
-
-    def _load_local_vectors(self) -> None:
-        self._persist_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self._persist_path.exists():
-            return
-        try:
-            payload = json.loads(self._persist_path.read_text(encoding="utf-8"))
-            self._ids = payload.get("ids", [])
-            self._vectors = {k: list(map(float, v)) for k, v in payload.get("vectors", {}).items()}
-        except Exception:
-            self._ids = []
-            self._vectors = {}
-
-    def _persist_local_vectors(self) -> None:
-        payload = {"ids": self._ids, "vectors": self._vectors, "version": 1}
-        self._persist_path.write_text(json.dumps(payload), encoding="utf-8")
 
     @staticmethod
     def _cosine(a: list[float], b: list[float]) -> float:

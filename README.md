@@ -4,7 +4,7 @@ Production-ready Retrieval-Augmented Generation platform with modular architectu
 
 - ingestion (text, markdown, PDF, codebase)
 - chunking (adaptive overlapping windows)
-- indexing (BM25 + Pinecone-primary dense retrieval with persistent local fallback)
+- indexing (BM25 + embedding-powered dense retrieval)
 - retrieval (3-stage hybrid + optional cross-encoder reranker)
 - generation (multi-provider routed LLM completion)
 - semantic caching (persistent SQLite-backed cache)
@@ -41,7 +41,6 @@ Runtime config is centralized in `config.json` and secret values are loaded from
 
 - `OPENAI_API_KEY`
 - `PINECONE_API_KEY`
-- `PINECONE_HOST`
 - `ANTHROPIC_API_KEY`
 - `GEMINI_API_KEY`
 - `DEEPSEEK_API_KEY`
@@ -54,5 +53,5 @@ Runtime config is centralized in `config.json` and secret values are loaded from
 - Tombstoning is supported before async cleanup jobs.
 - Hybrid retrieval combines BM25 and dense similarity via min-max normalization.
 - Cross-encoder rerank execution path is non-blocking through `asyncio.to_thread()`.
-- Dense retrieval is embedding-client based with Pinecone primary path, local persistent fallback, normalized vectors, and retries.
+- Dense retrieval is embedding-client based with normalized vectors and retries.
 - PDF ingestion uses binary parsing when `pypdf` is available and automatically falls back safely.
