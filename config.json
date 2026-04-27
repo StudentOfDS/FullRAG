@@ -8,7 +8,11 @@
     "provider": "openai",
     "model": "text-embedding-3-large",
     "batch_size": 64,
-    "dimension": 3072
+    "dimension": 1536
+  },
+  "storage": {
+    "docstore_path": "./data/docstore.db",
+    "cache_path": "./data/cache.db"
   },
   "indexing": {
     "pinecone": {
@@ -47,6 +51,14 @@
       "huggingface",
       "ollama"
     ],
+    "models": {
+      "openai": "gpt-4o-mini",
+      "anthropic": "claude-3-5-haiku-latest",
+      "gemini": "gemini-1.5-flash",
+      "deepseek": "deepseek-chat",
+      "huggingface": "mistralai/Mistral-7B-Instruct-v0.2",
+      "ollama": "llama3"
+    },
     "request_timeout_seconds": 30,
     "max_retries": 3,
     "max_concurrency": 8

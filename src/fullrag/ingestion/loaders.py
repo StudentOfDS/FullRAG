@@ -4,6 +4,11 @@ import hashlib
 import re
 from pathlib import Path
 
+try:
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover
+    PdfReader = None
+
 from fullrag.models.entities import ExtractedUnit
 
 
@@ -12,6 +17,7 @@ TOC_PATTERNS = [
     re.compile(r"^(chapter|section|contents?)\b", re.IGNORECASE),
     re.compile(r"^\d+(?:\.\d+)*\s+.+\s+\d+$"),
 ]
+HEADING_PATTERN = re.compile(r"^(\d+(?:\.\d+)*)\s+(.+)$")
 
 
 class BaseLoader:
@@ -37,29 +43,65 @@ class TextLoader(BaseLoader):
 
 
 class PdfLoader(BaseLoader):
-    """Layout-aware placeholder parser; replace with pymupdf/pdfplumber in production."""
+    """Binary PDF parser with TOC filtering and basic heading-aware section paths."""
 
     def load(self, path: str) -> list[ExtractedUnit]:
-        content = Path(path).read_text(encoding="utf-8", errors="ignore")
-        lines = [line.strip() for line in content.splitlines() if line.strip()]
-        units: list[ExtractedUnit] = []
-        for idx, line in enumerate(lines, start=1):
-            if self._is_toc_line(line):
-                continue
-            modality = "table" if "|" in line else "text"
-            unit_id = hashlib.sha256(f"{path}:{idx}:{line}".encode()).hexdigest()
-            units.append(
+        if PdfReader is None:
+            content = Path(path).read_text(encoding="utf-8", errors="ignore")
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            return [
                 ExtractedUnit(
-                    unit_id=unit_id,
+                    unit_id=hashlib.sha256(f"{path}:{idx}:{line}".encode()).hexdigest(),
                     text=line,
                     source_file=path,
                     page=1,
-                    section_path=["page_1"],
-                    modality=modality,
+                    section_path=["root"],
+                    modality="text",
                     abstract=line[:180],
+                    metadata={"parser": "text-fallback"},
                 )
-            )
+                for idx, line in enumerate(lines, start=1)
+                if not self._is_toc_line(line)
+            ]
+
+        reader = PdfReader(path)
+        units: list[ExtractedUnit] = []
+        current_section = ["root"]
+
+        for page_number, page in enumerate(reader.pages, start=1):
+            raw = page.extract_text() or ""
+            lines = [line.strip() for line in raw.splitlines() if line and line.strip()]
+            if not lines:
+                continue
+            if self._is_toc_page(lines):
+                continue
+            for line_idx, line in enumerate(lines, start=1):
+                if self._is_toc_line(line):
+                    continue
+                heading = HEADING_PATTERN.match(line)
+                if heading:
+                    current_section = [heading.group(1), heading.group(2)[:100]]
+                modality = "table" if "|" in line or "\t" in line else "text"
+                unit_id = hashlib.sha256(f"{path}:{page_number}:{line_idx}:{line}".encode()).hexdigest()
+                units.append(
+                    ExtractedUnit(
+                        unit_id=unit_id,
+                        text=line,
+                        source_file=path,
+                        page=page_number,
+                        section_path=current_section.copy(),
+                        modality=modality,
+                        abstract=line[:180],
+                        metadata={"parser": "pypdf", "page": page_number},
+                    )
+                )
         return units
+
+    def _is_toc_page(self, lines: list[str]) -> bool:
+        if len(lines) < 6:
+            return False
+        toc_like = sum(1 for line in lines if self._is_toc_line(line))
+        return (toc_like / len(lines)) >= 0.5
 
     @staticmethod
     def _is_toc_line(line: str) -> bool:

@@ -9,6 +9,7 @@ from fullrag.chunking.service import AdaptiveChunker
 from fullrag.generation.service import MultiProviderGenerator
 from fullrag.guardrails.service import QueryGuardrails
 from fullrag.indexing.dense import DenseIndex
+from fullrag.indexing.embeddings import EmbeddingClient, EmbeddingConfig
 from fullrag.indexing.service import HybridIndexer
 from fullrag.indexing.sparse import BM25Index
 from fullrag.ingestion.service import IngestionPipeline
@@ -23,31 +24,57 @@ class FullRAGOrchestrator:
         self.logger = logging.getLogger("fullrag.orchestrator")
         self.metrics = MetricsRegistry()
 
-        self.docstore = DocumentStore()
+        secrets = config.get("secrets", {})
+        self.docstore = DocumentStore(db_path=config.get("storage", {}).get("docstore_path", "./data/docstore.db"))
         sparse = BM25Index(
             k1=config["indexing"]["sparse"]["bm25_k1"],
             b=config["indexing"]["sparse"]["bm25_b"],
         )
-        dense = DenseIndex(dimension=min(768, config["embedding"]["dimension"]))
+        embedder = EmbeddingClient(
+            EmbeddingConfig(
+                provider=config["embedding"].get("provider", "openai"),
+                model=config["embedding"].get("model", "text-embedding-3-large"),
+                dimension=min(3072, config["embedding"]["dimension"]),
+                openai_api_key=secrets.get("openai_api_key"),
+                huggingface_api_key=secrets.get("huggingface_api_key"),
+            )
+        )
+        dense = DenseIndex(
+            embedder=embedder,
+            dimension=min(3072, config["embedding"]["dimension"]),
+            faiss_enabled=config["indexing"].get("faiss", {}).get("enabled", True),
+            faiss_path=config["indexing"].get("faiss", {}).get("path", "./data/faiss.index"),
+            normalize_l2=config["indexing"].get("faiss", {}).get("normalize_l2", True),
+        )
 
         self.ingestion = IngestionPipeline()
         self.chunker = AdaptiveChunker()
         self.indexer = HybridIndexer(self.docstore, sparse, dense)
+        hybrid_cfg = config["indexing"].get("hybrid", {})
         self.retriever = HybridRetriever(
             self.docstore,
             sparse,
             dense,
             stage1_candidates=config["indexing"]["sparse"]["stage1_candidates"],
+            short_query_alpha=hybrid_cfg.get("short_query_alpha", 0.35),
+            default_alpha=hybrid_cfg.get("default_alpha", 0.5),
+            long_query_alpha=hybrid_cfg.get("long_query_alpha", 0.75),
+            long_query_token_threshold=hybrid_cfg.get("long_query_token_threshold", 12),
+            enable_reranker=config.get("feature_flags", {}).get("enable_cross_encoder", True),
         )
         self.generator = MultiProviderGenerator(
             providers=config["llm"]["providers"],
             timeout_seconds=config["llm"]["request_timeout_seconds"],
             max_concurrency=config["llm"]["max_concurrency"],
+            max_retries=config["llm"].get("max_retries", 2),
+            provider_models=config["llm"].get("models", {}),
+            secrets=secrets,
         )
         self.guardrails = QueryGuardrails()
         self.cache = SemanticCache(
             threshold=config["cache"]["semantic_threshold"],
             ttl_seconds=config["cache"]["ttl_seconds"],
+            db_path=config.get("storage", {}).get("cache_path", "./data/cache.db"),
         )
 
     def ingest_paths(self, paths: list[str]) -> dict[str, int]:
