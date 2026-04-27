@@ -18,10 +18,13 @@ class ConfigLoader:
     @staticmethod
     def _inject_secrets(config: dict[str, Any]) -> None:
         config.setdefault("secrets", {})
+        if config.get("indexing", {}).get("pinecone") is not None and os.getenv("PINECONE_HOST"):
+            config["indexing"]["pinecone"]["host"] = os.getenv("PINECONE_HOST")
         config["secrets"].update(
             {
                 "openai_api_key": os.getenv("OPENAI_API_KEY"),
                 "pinecone_api_key": os.getenv("PINECONE_API_KEY"),
+                "pinecone_host": os.getenv("PINECONE_HOST"),
                 "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY"),
                 "gemini_api_key": os.getenv("GEMINI_API_KEY"),
                 "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY"),

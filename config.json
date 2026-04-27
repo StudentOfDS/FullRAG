@@ -8,7 +8,13 @@
     "provider": "openai",
     "model": "text-embedding-3-large",
     "batch_size": 64,
-    "dimension": 3072
+    "dimension": 1536,
+    "max_retries": 3,
+    "retry_base_backoff_seconds": 0.2
+  },
+  "storage": {
+    "docstore_path": "./data/docstore.db",
+    "cache_path": "./data/cache.db"
   },
   "indexing": {
     "pinecone": {
@@ -19,7 +25,8 @@
       "timeout_seconds": 10,
       "max_retries": 5,
       "base_backoff_seconds": 0.5,
-      "max_backoff_seconds": 8
+      "max_backoff_seconds": 8,
+      "host": ""
     },
     "faiss": {
       "enabled": true,
@@ -47,9 +54,20 @@
       "huggingface",
       "ollama"
     ],
+    "models": {
+      "openai": "gpt-4o-mini",
+      "anthropic": "claude-3-5-haiku-latest",
+      "gemini": "gemini-1.5-flash",
+      "deepseek": "deepseek-chat",
+      "huggingface": "mistralai/Mistral-7B-Instruct-v0.2",
+      "ollama": "llama3"
+    },
     "request_timeout_seconds": 30,
     "max_retries": 3,
-    "max_concurrency": 8
+    "max_concurrency": 8,
+    "circuit_breaker_seconds": 20,
+    "retry_base_backoff_seconds": 0.2,
+    "max_prompt_chars": 14000
   },
   "cache": {
     "semantic_threshold": 0.95,

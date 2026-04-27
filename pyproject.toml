@@ -1,13 +1,24 @@
 [project]
 name = "fullrag"
-version = "0.1.0"
-description = "Distributed-system-oriented RAG architecture"
+version = "0.2.0"
+description = "Production-ready modular RAG platform"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115.0",
   "uvicorn>=0.30.0",
-  "pydantic>=2.7.0"
+  "pydantic>=2.7.0",
+  "pypdf>=5.0.0",
+  "prometheus-client>=0.21.0"
+]
+
+[project.optional-dependencies]
+ml = [
+  "sentence-transformers>=3.0.0",
+  "faiss-cpu>=1.8.0",
+]
+vector = [
+  "pinecone>=5.0.0",
 ]
 
 [build-system]
