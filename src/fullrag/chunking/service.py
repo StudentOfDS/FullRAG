@@ -15,9 +15,37 @@ class AdaptiveChunker(ChunkingService):
 
     def chunk(self, units: list[ExtractedUnit]) -> list[Chunk]:
         chunks: list[Chunk] = []
-        for unit in units:
-            chunks.extend(self._chunk_unit(unit))
+        grouped = self._group_by_section(units)
+        for _, section_units in grouped.items():
+            merged_unit = self._merge_units(section_units)
+            chunks.extend(self._chunk_unit(merged_unit))
         return chunks
+
+    @staticmethod
+    def _group_by_section(units: list[ExtractedUnit]) -> dict[tuple[str, tuple[str, ...], int | None], list[ExtractedUnit]]:
+        grouped: dict[tuple[str, tuple[str, ...], int | None], list[ExtractedUnit]] = {}
+        for unit in units:
+            key = (unit.source_file, tuple(unit.section_path), unit.page)
+            grouped.setdefault(key, []).append(unit)
+        return grouped
+
+    @staticmethod
+    def _merge_units(units: list[ExtractedUnit]) -> ExtractedUnit:
+        if len(units) == 1:
+            return units[0]
+        head = units[0]
+        merged_text = "\n".join(u.text for u in units if u.text.strip())
+        merged_abstract = " ".join((u.abstract or "") for u in units).strip()[:400]
+        return ExtractedUnit(
+            unit_id=hashlib.sha256("|".join(u.unit_id for u in units).encode()).hexdigest(),
+            text=merged_text,
+            source_file=head.source_file,
+            page=head.page,
+            section_path=head.section_path,
+            modality=head.modality,
+            abstract=merged_abstract or merged_text[:200],
+            metadata={"merged_units": len(units), **head.metadata},
+        )
 
     def _chunk_unit(self, unit: ExtractedUnit) -> Iterable[Chunk]:
         words = unit.text.split()
