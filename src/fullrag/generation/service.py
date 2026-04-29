@@ -18,6 +18,8 @@ class ProviderClient:
     model: str
     api_key: str | None = None
     base_url: str | None = None
+    temperature: float = 0.2
+    max_output_tokens: int = 1000
 
     async def complete(self, prompt: str) -> str:
         return await asyncio.to_thread(self._complete_sync, prompt)
@@ -49,19 +51,34 @@ class ProviderClient:
 
     def _openai(self, prompt: str, url: str = "https://api.openai.com/v1/chat/completions") -> str:
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        payload = {"model": self.model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.2}
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.temperature,
+            "max_tokens": self.max_output_tokens,
+        }
         data = self._post_json(url, payload, headers=headers)
         return data["choices"][0]["message"]["content"]
 
     def _anthropic(self, prompt: str) -> str:
         headers = {"x-api-key": self.api_key or "", "anthropic-version": "2023-06-01"}
-        payload = {"model": self.model, "max_tokens": 1000, "messages": [{"role": "user", "content": prompt}]}
+        payload = {
+            "model": self.model,
+            "max_tokens": self.max_output_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
         data = self._post_json("https://api.anthropic.com/v1/messages", payload, headers=headers)
         return data["content"][0]["text"]
 
     def _gemini(self, prompt: str) -> str:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": self.temperature,
+                "maxOutputTokens": self.max_output_tokens,
+            },
+        }
         data = self._post_json(url, payload)
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
@@ -70,7 +87,7 @@ class ProviderClient:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         data = self._post_json(
             f"https://api-inference.huggingface.co/models/{model}",
-            {"inputs": prompt, "parameters": {"max_new_tokens": 300}},
+            {"inputs": prompt, "parameters": {"max_new_tokens": self.max_output_tokens, "temperature": self.temperature}},
             headers=headers,
         )
         if isinstance(data, list) and data:
@@ -79,7 +96,12 @@ class ProviderClient:
 
     def _ollama(self, prompt: str) -> str:
         base = self.base_url or "http://localhost:11434"
-        payload = {"model": self.model or "llama3", "prompt": prompt, "stream": False}
+        payload = {
+            "model": self.model or "llama3",
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": self.temperature, "num_predict": self.max_output_tokens},
+        }
         data = self._post_json(f"{base.rstrip('/')}/api/generate", payload)
         return data.get("response", "")
 
@@ -121,6 +143,8 @@ class MultiProviderGenerator:
                 model=model_defaults.get(p, "gpt-4o-mini"),
                 api_key=secrets.get(f"{p}_api_key"),
                 base_url=secrets.get("ollama_base_url"),
+                temperature=self._policy.temperature,
+                max_output_tokens=self._policy.max_output_tokens,
             )
             for p in providers
         ]
