@@ -150,7 +150,7 @@ class MultiProviderGenerator:
         ]
 
     async def answer(self, query: str, context: list[Chunk]) -> QueryResult:
-        prompt = self._enforce_budget(self._build_prompt(query, context))
+        prompt = self._build_prompt(query, context)
         start = time.perf_counter()
 
         async with self._semaphore:
@@ -185,10 +185,32 @@ class MultiProviderGenerator:
             cached=False,
         )
 
-    def _enforce_budget(self, prompt: str) -> str:
-        if len(prompt) <= self._policy.max_prompt_chars:
-            return prompt
-        return prompt[: self._policy.max_prompt_chars]
+    def _enforce_budget(self, query: str, chunks: list[Chunk]) -> str:
+        header = (
+            "You are a grounded RAG assistant. Use only provided context and cite sources. "
+            "If context is insufficient, say so explicitly."
+        )
+        question_block = f"\n\nQUESTION:\n{query}\n\nCONTEXT:\n"
+        budget = self._policy.max_prompt_chars - len(header) - len(question_block)
+        if budget <= 0:
+            return f"{header}{question_block}"
+
+        selected: list[str] = []
+        for block in self._build_context_blocks(chunks):
+            if len(block) <= budget:
+                selected.append(block)
+                budget -= len(block) + 2
+                continue
+            if budget > 20:
+                # keep source header intact even when truncating the body
+                lines = block.splitlines()
+                if lines:
+                    prefix = "\n".join(lines[:2]) + "\nTEXT: "
+                    remaining = max(0, budget - len(prefix) - 20)
+                    snippet = (" ".join(lines[2:]))[:remaining]
+                    selected.append(f"{prefix}{snippet}...")
+            break
+        return f"{header}{question_block}" + "\n\n".join(selected)
 
     @staticmethod
     def _enforce_citation_policy(text: str, chunks: list[Chunk]) -> str:
