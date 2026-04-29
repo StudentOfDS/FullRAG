@@ -244,12 +244,13 @@ class MultiProviderGenerator:
             return False
         return True
 
-    def _build_prompt(self, query: str, chunks: list[Chunk]) -> str:
-        return self._enforce_budget(query, chunks)
-
     @staticmethod
-    def _build_context_blocks(chunks: list[Chunk]) -> list[str]:
-        return [
-            f"SOURCE: {chunk.source_file}#{chunk.page}\nABSTRACT: {chunk.abstract}\nTEXT: {chunk.text}"
-            for chunk in chunks
-        ]
+    def _build_prompt(query: str, chunks: list[Chunk]) -> str:
+        context = "\n\n".join(
+            f"SOURCE: {chunk.source_file}#{chunk.page}\nABSTRACT: {chunk.abstract}\nTEXT: {chunk.text}" for chunk in chunks
+        )
+        return (
+            "You are a grounded RAG assistant. Use only provided context and cite sources. "
+            "If context is insufficient, say so explicitly."
+            f"\n\nQUESTION:\n{query}\n\nCONTEXT:\n{context}"
+        )

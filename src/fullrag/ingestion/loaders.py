@@ -175,53 +175,7 @@ class PdfLoader(BaseLoader):
                             metadata={"parser": "pdfplumber", "page": page_number},
                         )
                     )
-                table_units = self._extract_pdfplumber_tables(path, page, page_number, current_section)
-                units.extend(table_units)
         return units
-
-    def _extract_pdfplumber_tables(
-        self,
-        path: str,
-        page,
-        page_number: int,
-        section_path: list[str],
-    ) -> list[ExtractedUnit]:
-        table_units: list[ExtractedUnit] = []
-        try:
-            tables = page.extract_tables() or []
-        except Exception:
-            tables = []
-        for idx, table in enumerate(tables, start=1):
-            if not table:
-                continue
-            normalized_rows = [[(cell or "").strip() for cell in row] for row in table if row]
-            if not normalized_rows:
-                continue
-            markdown = self._table_rows_to_markdown(normalized_rows)
-            table_units.append(
-                ExtractedUnit(
-                    unit_id=hashlib.sha256(f"{path}:{page_number}:table:{idx}:{markdown[:80]}".encode()).hexdigest(),
-                    text=markdown,
-                    source_file=path,
-                    page=page_number,
-                    section_path=section_path.copy(),
-                    modality="table",
-                    abstract=f"Table {idx} on page {page_number}",
-                    metadata={"parser": "pdfplumber", "page": page_number, "table_index": idx},
-                )
-            )
-        return table_units
-
-    @staticmethod
-    def _table_rows_to_markdown(rows: list[list[str]]) -> str:
-        width = max(len(r) for r in rows)
-        padded = [r + [""] * (width - len(r)) for r in rows]
-        header = padded[0]
-        divider = ["---"] * width
-        body = padded[1:] if len(padded) > 1 else []
-        lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(divider) + " |"]
-        lines.extend("| " + " | ".join(row) + " |" for row in body)
-        return "\n".join(lines)
 
     def _is_toc_page(self, lines: list[str]) -> bool:
         if len(lines) < 6:
