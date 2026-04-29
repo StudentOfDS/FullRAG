@@ -18,6 +18,8 @@ TOC_PATTERNS = [
     re.compile(r"^\d+(?:\.\d+)*\s+.+\s+\d+$"),
 ]
 HEADING_PATTERN = re.compile(r"^(\d+(?:\.\d+)*)\s+(.+)$")
+DOT_LEADER_PATTERN = re.compile(r"\.{3,}\s*\d+$")
+PAGE_NUMBER_SUFFIX = re.compile(r"\s\d+$")
 
 
 class BaseLoader:
@@ -100,8 +102,25 @@ class PdfLoader(BaseLoader):
     def _is_toc_page(self, lines: list[str]) -> bool:
         if len(lines) < 6:
             return False
+        lowered = [line.lower() for line in lines]
+        explicit_contents = any("table of contents" in line or line == "contents" for line in lowered)
         toc_like = sum(1 for line in lines if self._is_toc_line(line))
-        return (toc_like / len(lines)) >= 0.5
+        dotted = sum(1 for line in lines if DOT_LEADER_PATTERN.search(line))
+        numbered_suffix = sum(1 for line in lines if PAGE_NUMBER_SUFFIX.search(line))
+        narrative = sum(1 for line in lines if len(line.split()) > 12 and not self._is_toc_line(line))
+
+        score = 0
+        if explicit_contents:
+            score += 2
+        if (toc_like / len(lines)) >= 0.45:
+            score += 1
+        if (dotted / len(lines)) >= 0.25:
+            score += 1
+        if (numbered_suffix / len(lines)) >= 0.55:
+            score += 1
+        if narrative <= max(2, len(lines) // 10):
+            score += 1
+        return score >= 3
 
     @staticmethod
     def _is_toc_line(line: str) -> bool:
