@@ -9,6 +9,16 @@ try:
 except Exception:  # pragma: no cover
     PdfReader = None
 
+try:  # pragma: no cover - optional dependency
+    import fitz  # type: ignore
+except Exception:  # pragma: no cover
+    fitz = None
+
+try:  # pragma: no cover - optional dependency
+    import pdfplumber  # type: ignore
+except Exception:  # pragma: no cover
+    pdfplumber = None
+
 from fullrag.models.entities import ExtractedUnit
 
 
@@ -48,6 +58,16 @@ class PdfLoader(BaseLoader):
     """Binary PDF parser with TOC filtering and basic heading-aware section paths."""
 
     def load(self, path: str) -> list[ExtractedUnit]:
+        if fitz is not None:
+            units = self._load_with_pymupdf(path)
+            if units:
+                return units
+
+        if pdfplumber is not None:
+            units = self._load_with_pdfplumber(path)
+            if units:
+                return units
+
         if PdfReader is None:
             content = Path(path).read_text(encoding="utf-8", errors="ignore")
             lines = [line.strip() for line in content.splitlines() if line.strip()]
@@ -97,6 +117,64 @@ class PdfLoader(BaseLoader):
                         metadata={"parser": "pypdf", "page": page_number},
                     )
                 )
+        return units
+
+    def _load_with_pymupdf(self, path: str) -> list[ExtractedUnit]:
+        units: list[ExtractedUnit] = []
+        current_section = ["root"]
+        with fitz.open(path) as doc:  # type: ignore[attr-defined]
+            for page_number, page in enumerate(doc, start=1):
+                blocks = page.get_text("blocks")
+                lines = [str(b[4]).strip() for b in blocks if len(b) >= 5 and str(b[4]).strip()]
+                if not lines or self._is_toc_page(lines):
+                    continue
+                for line_idx, line in enumerate(lines, start=1):
+                    if self._is_toc_line(line):
+                        continue
+                    heading = HEADING_PATTERN.match(line)
+                    if heading:
+                        current_section = [heading.group(1), heading.group(2)[:100]]
+                    units.append(
+                        ExtractedUnit(
+                            unit_id=hashlib.sha256(f"{path}:{page_number}:{line_idx}:{line}".encode()).hexdigest(),
+                            text=line,
+                            source_file=path,
+                            page=page_number,
+                            section_path=current_section.copy(),
+                            modality="table" if "|" in line or "\t" in line else "text",
+                            abstract=line[:180],
+                            metadata={"parser": "pymupdf", "page": page_number},
+                        )
+                    )
+        return units
+
+    def _load_with_pdfplumber(self, path: str) -> list[ExtractedUnit]:
+        units: list[ExtractedUnit] = []
+        current_section = ["root"]
+        with pdfplumber.open(path) as pdf:  # type: ignore[attr-defined]
+            for page_number, page in enumerate(pdf.pages, start=1):
+                raw = page.extract_text() or ""
+                lines = [line.strip() for line in raw.splitlines() if line.strip()]
+                if not lines or self._is_toc_page(lines):
+                    continue
+                for line_idx, line in enumerate(lines, start=1):
+                    if self._is_toc_line(line):
+                        continue
+                    heading = HEADING_PATTERN.match(line)
+                    if heading:
+                        current_section = [heading.group(1), heading.group(2)[:100]]
+                    units.append(
+                        ExtractedUnit(
+                            unit_id=hashlib.sha256(f"{path}:{page_number}:{line_idx}:{line}".encode()).hexdigest(),
+                            text=line,
+                            source_file=path,
+                            page=page_number,
+                            section_path=current_section.copy(),
+                            modality="table" if "|" in line or "\t" in line else "text",
+                            abstract=line[:180],
+                            metadata={"parser": "pdfplumber", "page": page_number},
+                        )
+                    )
         return units
 
     def _is_toc_page(self, lines: list[str]) -> bool:

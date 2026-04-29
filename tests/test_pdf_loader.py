@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fullrag.ingestion.loaders import PdfLoader
+import fullrag.ingestion.loaders as loaders
 
 
 def test_pdf_loader_toc_page_detection():
