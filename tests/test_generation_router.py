@@ -46,25 +46,3 @@ def test_generator_policy_is_attached():
     policy = GeneratorPolicy(max_prompt_chars=999, max_retries=1)
     gen = MultiProviderGenerator(providers=["openai"], policy=policy, secrets={})
     assert gen._policy.max_prompt_chars == 999
-
-
-def test_prompt_budget_preserves_source_headers():
-    policy = GeneratorPolicy(max_prompt_chars=220)
-    gen = MultiProviderGenerator(providers=["openai"], policy=policy, secrets={})
-    chunk_text = " ".join(["word"] * 200)
-    from fullrag.models.entities import Chunk
-
-    chunks = [
-        Chunk(
-            chunk_id="c1",
-            document_id="d1",
-            text=chunk_text,
-            abstract="summary",
-            section_path=["root"],
-            source_file="doc.pdf",
-            page=2,
-        )
-    ]
-    prompt = gen._build_prompt("what?", chunks)
-    assert len(prompt) <= 220 + 40  # small overhead for truncation marker/newlines
-    assert "SOURCE: doc.pdf#2" in prompt

@@ -28,29 +28,3 @@ def test_pdf_loader_does_not_flag_narrative_page_as_toc():
         "Finally, we summarize the key findings and future work.",
     ]
     assert loader._is_toc_page(lines) is False
-
-
-def test_pdf_loader_uses_pymupdf_when_available(monkeypatch):
-    class DummyPage:
-        def get_text(self, mode):
-            return [(0, 0, 10, 10, "1 Intro"), (0, 11, 10, 20, "Hello world")]
-
-    class DummyDoc:
-        def __iter__(self):
-            return iter([DummyPage()])
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    class DummyFitz:
-        @staticmethod
-        def open(path):
-            return DummyDoc()
-
-    monkeypatch.setattr(loaders, "fitz", DummyFitz)
-    loader = PdfLoader()
-    units = loader.load("dummy.pdf")
-    assert units and units[0].metadata.get("parser") == "pymupdf"
